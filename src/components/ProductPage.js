@@ -84,12 +84,14 @@ const ProductPage = ({ addToCart, isAuthenticated }) => {
     try {
       const user = JSON.parse(localStorage.getItem("user"));
       const token = localStorage.getItem("token");
+      console.log("User from localStorage:", user); // Debug user
+      console.log("Token from localStorage:", token); // Debug token
+
       if (!user?.email || !token) {
         setCartError("Please log in to add to cart");
         return;
       }
 
-      // Validate productId
       const productId = selectedProduct.id;
       if (!productId || !/^[0-9a-fA-F]{24}$/.test(productId)) {
         setCartError("Invalid product ID");
@@ -97,19 +99,17 @@ const ProductPage = ({ addToCart, isAuthenticated }) => {
         return;
       }
 
-      // Local stock check
       if (quantity > selectedProduct.stock) {
         setCartError(`Only ${selectedProduct.stock} units available`);
         return;
       }
 
-      // Log payload for debugging
       const payload = {
         userId: user.email,
         product: {
           productId,
           name: selectedProduct.name,
-          image: selectedProduct.image,
+          image: selectedProduct.image || "",
           mrp: selectedProduct.mrp,
           discountedPrice: selectedProduct.discountedPrice,
           quantity,
@@ -117,12 +117,12 @@ const ProductPage = ({ addToCart, isAuthenticated }) => {
       };
       console.log("Sending to /api/cart/add:", payload);
 
-      // Send to backend
       const response = await axios.post(
         "https://final-balaguruva-chettiar-ecommerce.onrender.com/api/cart/add",
         payload,
         {
           headers: { Authorization: `Bearer ${token}` },
+          withCredentials: true,
         }
       );
 
@@ -131,8 +131,7 @@ const ProductPage = ({ addToCart, isAuthenticated }) => {
       setQuantity(1);
       setCartError("");
     } catch (error) {
-      const errorMessage =
-        error.response?.data?.message || "Failed to add to cart";
+      const errorMessage = error.response?.data?.message || "Failed to add to cart";
       setCartError(errorMessage);
       console.error("Failed to sync cart to backend:", error);
     }

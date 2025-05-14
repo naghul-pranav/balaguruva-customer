@@ -14,7 +14,23 @@ const Cart = require('./models/Cart');
 
 // Middleware
 app.use(express.json());
-app.use(cors());
+app.use(cors({
+  origin: (origin, callback) => {
+    const allowedOrigins = [
+      'http://localhost:3000', // For local development
+      'https://balaguruvachettiarsons.vercel.app', // Your frontend production URL
+      'https://final-balaguruva-chettiar-ecommerce.onrender.com' // Your backend URL (if needed)
+    ];
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, origin || '*'); // Allow the origin if it matches, or '*' for non-credentialed requests
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: true, // Allow credentials (e.g., tokens in headers)
+}));
 
 // MongoDB Connection
 const MONGO_URI = "mongodb+srv://balaguruva-admin:Balaguruva%401@balaguruvacluster.d48xg.mongodb.net/?retryWrites=true&w=majority&appName=BalaguruvaCluster";
@@ -834,21 +850,24 @@ app.get("/api/cart/:userId", authenticateToken, async (req, res) => {
 
 // Add to Cart - Smart Handling (Merge if Exists)
 
-app.post("/api/cart/add", authenticateToken, async (req, res) => {
+app.post("/api/cart/add", (req, res, next) => {
+  if (req.method === "OPTIONS") {
+    return next(); // Skip authentication for OPTIONS requests
+  }
+  authenticateToken(req, res, next); // Apply authentication for POST requests
+}, async (req, res) => {
   try {
     const { userId, product } = req.body;
-    if (!userId || !product?.productId || !product.quantity) {
+    if (!userId || !product?.productId || !product.quantity || !product.image) {
       console.error("Missing required fields:", { userId, product });
-      return res.status(400).json({ message: "Missing userId, productId, or quantity" });
+      return res.status(400).json({ message: "Missing userId, productId, quantity, or image" });
     }
 
-    // Validate productId as ObjectId
     if (!mongoose.Types.ObjectId.isValid(product.productId)) {
       console.error("Invalid productId:", product.productId);
       return res.status(400).json({ message: "Invalid productId format" });
     }
 
-    // Validate product and stock
     const productData = await Product.findById(product.productId);
     if (!productData) {
       console.error("Product not found for productId:", product.productId);
@@ -863,7 +882,6 @@ app.post("/api/cart/add", authenticateToken, async (req, res) => {
       cart = new Cart({ userId, items: [] });
     }
 
-    // Check for existing item
     const incomingId = product.productId;
     console.log("Checking for productId in cart:", incomingId);
     const existingIndex = cart.items.findIndex(
@@ -871,26 +889,25 @@ app.post("/api/cart/add", authenticateToken, async (req, res) => {
     );
 
     if (existingIndex !== -1) {
-      // Item exists, update quantity
       const newQuantity = cart.items[existingIndex].quantity + product.quantity;
       if (newQuantity > productData.stock) {
         return res.status(400).json({ message: `Only ${productData.stock} units available` });
       }
       cart.items[existingIndex].quantity = newQuantity;
+      cart.items[existingIndex].image = product.image;
       console.log(`Updated quantity for product ${incomingId} to ${newQuantity}`);
-    }else {
-  // New item, add to cart
-  const newItem = {
-    productId: new mongoose.Types.ObjectId(product.productId),
-    name: product.name || productData.name || "Unknown Product",
-    image: product.image || productData.image || "", // Ensure image is included
-    mrp: product.mrp || productData.mrp || 0,
-    discountedPrice: product.discountedPrice || productData.discountedPrice || 0,
-    quantity: product.quantity || 1,
-  };
-  cart.items.push(newItem);
-  console.log(`Added new product ${incomingId} to cart with image:`, newItem.image ? newItem.image.substring(0, 50) : "MISSING");
-}
+    } else {
+      const newItem = {
+        productId: new mongoose.Types.ObjectId(product.productId),
+        name: product.name || productData.name || "Unknown Product",
+        image: product.image,
+        mrp: product.mrp || productData.mrp || 0,
+        discountedPrice: product.discountedPrice || productData.discountedPrice || 0,
+        quantity: product.quantity || 1,
+      };
+      cart.items.push(newItem);
+      console.log(`Added new product ${incomingId} to cart with image:`, newItem.image ? newItem.image.substring(0, 50) : "MISSING");
+    }
 
     await cart.save();
     console.log("Cart saved successfully for user:", userId);
